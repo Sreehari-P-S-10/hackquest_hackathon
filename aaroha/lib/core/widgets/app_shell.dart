@@ -24,7 +24,10 @@ class AppShell extends StatelessWidget {
 
   void _onTabTapped(BuildContext context, int index) {
     HapticFeedback.selectionClick();
-    navigationShell.goBranch(index, initialLocation: index == navigationShell.currentIndex);
+    navigationShell.goBranch(
+      index,
+      initialLocation: index == navigationShell.currentIndex,
+    );
   }
 
   void _showSOS(BuildContext context) {
@@ -39,6 +42,9 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Swasthi (index 1) has its own input bar — hide FAB to avoid overlap
+    final bool isSwasthiTab = navigationShell.currentIndex == 1;
+
     return Scaffold(
       backgroundColor: AarohaColors.background,
       drawer: const AarohaDrawer(),
@@ -49,14 +55,17 @@ class AppShell extends StatelessWidget {
         onTap: (i) => _onTabTapped(context, i),
         tabs: _tabs,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showSOS(context),
-        backgroundColor: AarohaColors.tertiary,
-        foregroundColor: AarohaColors.onTertiary,
-        elevation: 0,
-        tooltip: 'Crisis support',
-        child: const Icon(Icons.emergency_rounded, size: 28),
-      ),
+      // Hide FAB on Swasthi tab — SOS is still accessible via AppBar button
+      floatingActionButton: isSwasthiTab
+          ? null
+          : FloatingActionButton(
+              onPressed: () => _showSOS(context),
+              backgroundColor: AarohaColors.tertiary,
+              foregroundColor: AarohaColors.onTertiary,
+              elevation: 0,
+              tooltip: 'Crisis support',
+              child: const Icon(Icons.emergency_rounded, size: 28),
+            ),
     );
   }
 }
@@ -65,19 +74,29 @@ class _GlassBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
   final List<_NavTab> tabs;
-  const _GlassBottomNav({required this.currentIndex, required this.onTap, required this.tabs});
+  const _GlassBottomNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.tabs,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AarohaColors.surface.withOpacity(0.88),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AarohaConstants.radiusLg)),
-        boxShadow: [BoxShadow(
-          color: AarohaColors.onSurface.withOpacity(AarohaConstants.ambientShadowOpacity),
-          blurRadius: AarohaConstants.ambientShadowBlur,
-          offset: const Offset(0, -4),
-        )],
+        color: AarohaColors.surface.withValues(alpha: 0.88),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AarohaConstants.radiusLg),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AarohaColors.onSurface.withValues(
+              alpha: AarohaConstants.ambientShadowOpacity,
+            ),
+            blurRadius: AarohaConstants.ambientShadowBlur,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: SafeArea(
         child: Padding(
@@ -91,18 +110,35 @@ class _GlassBottomNav extends StatelessWidget {
                 behavior: HitTestBehavior.opaque,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: EdgeInsets.symmetric(horizontal: isActive ? 14 : 8, vertical: 6),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isActive ? 14 : 8,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: isActive ? AarohaColors.surfaceContainerHighest : Colors.transparent,
+                    color: isActive
+                        ? AarohaColors.surfaceContainerHighest
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(tab.icon, size: 22, color: isActive ? AarohaColors.primary : AarohaColors.outline),
+                      Icon(
+                        tab.icon,
+                        size: 22,
+                        color: isActive
+                            ? AarohaColors.primary
+                            : AarohaColors.outline,
+                      ),
                       const SizedBox(height: 2),
-                      Text(tab.label, style: AarohaTextStyles.labelSm.copyWith(
-                        color: isActive ? AarohaColors.primary : AarohaColors.outline)),
+                      Text(
+                        tab.label,
+                        style: AarohaTextStyles.labelSm.copyWith(
+                          color: isActive
+                              ? AarohaColors.primary
+                              : AarohaColors.outline,
+                        ),
+                      ),
                     ],
                   ),
                 ),

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_text_styles.dart';
-import '../../../../core/constants/app_constants.dart';
+import '../../../../../core/theme/app_colors.dart';
+import '../../../../../core/theme/app_text_styles.dart';
+import '../../../../../core/constants/app_constants.dart';
+import '../models/chat_message.dart';
+import '../services/groq_service.dart';
 
 class SwasthiScreen extends StatefulWidget {
   const SwasthiScreen({super.key});
@@ -13,312 +15,436 @@ class SwasthiScreen extends StatefulWidget {
 }
 
 class _SwasthiScreenState extends State<SwasthiScreen> {
-  final _controller = TextEditingController();
-  final _scrollCtrl = ScrollController();
-  final List<_ChatMessage> _messages = [
-    const _ChatMessage(
-      text:
-          'Namaste 🙏 I\'m Swasthi, your Aaroha companion. This is a safe, private space — no judgement, just support. What\'s on your mind today?',
-      isAI: true,
-      time: '10:00 AM',
-    ),
-    const _ChatMessage(
-      text:
-          'I\'ve been feeling overwhelmed with cravings lately. It\'s hard to focus on anything else.',
-      isAI: false,
-      time: '10:02 AM',
-    ),
-    const _ChatMessage(
-      text:
-          'I hear you. Cravings are like waves — they peak and pass. You\'ve made it 12 days. That\'s real strength. Would you like to try a quick grounding exercise, or talk more about what\'s triggering this?',
-      isAI: true,
-      time: '10:03 AM',
-    ),
-  ];
+  final _textController = TextEditingController();
+  final _scrollController = ScrollController();
+  final _focusNode = FocusNode();
+  final _groq = GroqService();
+  final List<ChatMessage> _messages = [];
 
-  int? _selectedMood;
+  bool _isTyping = false;
+  int _selectedMood = -1;
+
+  // Hackathon: hardcoded streak — wire to your Hive box in production
+  static const int _streakDays = 12;
 
   static const _moods = [
     ('😰', 'Anxious'),
-    ('😔', 'Low'),
+    ('😞', 'Low'),
     ('😐', 'Okay'),
     ('🙂', 'Good'),
     ('😊', 'Great'),
   ];
 
-  static const _suggestions = [
+  static const _chips = [
     'Try grounding',
     'Talk more',
     'Breathwork',
-    'Craving journal',
+    'Craving help',
+    'I need hope',
   ];
 
-  void _sendMessage([String? text]) {
-    final msg = text ?? _controller.text.trim();
-    if (msg.isEmpty) return;
-    HapticFeedback.selectionClick();
-    setState(() {
-      _messages.add(_ChatMessage(
-        text: msg,
-        isAI: false,
-        time: _now(),
-      ));
-      _controller.clear();
-    });
-    // Simulate AI response
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      setState(() {
-        _messages.add(_ChatMessage(
-          text: _aiReply(msg),
-          isAI: true,
-          time: _now(),
-        ));
-      });
-      Future.delayed(100.ms, () {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: 300.ms,
-          curve: Curves.easeOut,
-        );
-      });
-    });
-  }
-
-  String _aiReply(String input) {
-    final lower = input.toLowerCase();
-    if (lower.contains('ground')) {
-      return 'Let\'s try the 5-4-3-2-1 technique. Name 5 things you can see right now. Take your time. 🌿';
-    }
-    if (lower.contains('breath')) {
-      return 'Let\'s breathe together. Inhale for 4 counts... hold for 7... exhale for 8. This activates your rest response. Ready?';
-    }
-    if (lower.contains('craving')) {
-      return 'Cravings typically peak within 15–20 minutes then fade. Can you wait just 5 minutes? You\'ve done it before. 💚';
-    }
-    return 'Thank you for sharing that with me. You\'re doing something brave just by being here. What would feel most helpful right now?';
-  }
-
-  String _now() {
-    final t = DateTime.now();
-    final h = t.hour > 12 ? t.hour - 12 : t.hour;
-    final m = t.minute.toString().padLeft(2, '0');
-    final suffix = t.hour >= 12 ? 'PM' : 'AM';
-    return '$h:$m $suffix';
+  @override
+  void initState() {
+    super.initState();
+    _addBotMessage(
+      "Namaste 🙏 I'm Swasthi, your Aaroha companion. "
+      "This is a safe, private space — no judgement, just support. "
+      "What's on your mind today?",
+      time: DateTime.now().subtract(const Duration(minutes: 3)),
+    );
   }
 
   @override
   void dispose() {
-    _controller.dispose();
-    _scrollCtrl.dispose();
+    _textController.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _addBotMessage(String text, {DateTime? time}) {
+    _messages.add(ChatMessage(text: text, isUser: false, time: time));
+  }
+
+  Future<void> _send(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || _isTyping) return;
+
+    HapticFeedback.lightImpact();
+    _textController.clear();
+    _focusNode.unfocus();
+
+    setState(() {
+      _messages.add(ChatMessage(text: trimmed, isUser: true));
+      _isTyping = true;
+    });
+    _scrollToBottom();
+
+    final reply = await _groq.sendMessage(trimmed, streakDays: _streakDays);
+
+    if (!mounted) return;
+    setState(() {
+      _addBotMessage(reply);
+      _isTyping = false;
+    });
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 340),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  void _onMoodTap(int index) {
+    if (_selectedMood == index) return;
+    setState(() => _selectedMood = index);
+    HapticFeedback.selectionClick();
+    _send("I'm feeling ${_moods[index].$2} today.");
+  }
+
+  void _resetConversation() {
+    HapticFeedback.mediumImpact();
+    _groq.clearHistory();
+    setState(() {
+      _messages.clear();
+      _selectedMood = -1;
+      _addBotMessage(
+        "Starting fresh 🌱 I'm here whenever you're ready. "
+        "What would you like to talk about?",
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AarohaColors.background,
+      appBar: _SwasthiAppBar(onReset: _resetConversation),
       body: Column(
         children: [
-          // ── Privacy banner ──────────────────────────────
-          _PrivacyBanner(),
-
-          // ── Chat messages ───────────────────────────────
-          Expanded(
-            child: ListView.separated(
-              controller: _scrollCtrl,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              itemCount: _messages.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 16),
-              itemBuilder: (_, i) {
-                final msg = _messages[i];
-                return _ChatBubble(message: msg)
-                    .animate()
-                    .fadeIn(duration: 300.ms)
-                    .slideY(begin: 0.05, end: 0, duration: 300.ms);
-              },
-            ),
-          ),
-
-          // ── Suggestion chips ────────────────────────────
-          _SuggestionChips(
-            chips: _suggestions,
-            onTap: _sendMessage,
-          ),
-
-          // ── Mood check-in ───────────────────────────────
+          const _PrivacyBadge(),
+          Expanded(child: _buildMessageList()),
+          _SuggestionRow(chips: _chips, onTap: _send, enabled: !_isTyping),
           _MoodStrip(
             moods: _moods,
-            selected: _selectedMood,
-            onSelect: (i) {
-              HapticFeedback.selectionClick();
-              setState(() => _selectedMood = i);
-              _sendMessage('Feeling ${_moods[i].$2.toLowerCase()} ${_moods[i].$1}');
-            },
+            selectedIndex: _selectedMood,
+            onTap: _onMoodTap,
           ),
-
-          // ── Input bar ───────────────────────────────────
           _InputBar(
-            controller: _controller,
-            onSend: _sendMessage,
+            controller: _textController,
+            focusNode: _focusNode,
+            isTyping: _isTyping,
+            onSend: () => _send(_textController.text),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildMessageList() {
+    final itemCount = _messages.length + (_isTyping ? 1 : 0);
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      itemCount: itemCount,
+      itemBuilder: (context, i) {
+        if (i == _messages.length) {
+          return const _TypingBubble();
+        }
+        return _ChatBubble(message: _messages[i])
+            .animate()
+            .fadeIn(duration: 240.ms)
+            .slideY(begin: 0.06, curve: Curves.easeOutCubic);
+      },
+    );
+  }
 }
 
-// ── Privacy Banner ─────────────────────────────────────────────
-class _PrivacyBanner extends StatelessWidget {
+// ── AppBar ─────────────────────────────────────────────────────
+class _SwasthiAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final VoidCallback onReset;
+  const _SwasthiAppBar({required this.onReset});
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: AarohaColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+    return AppBar(
+      backgroundColor: AarohaColors.background,
+      elevation: 0,
+      titleSpacing: 0,
+      title: Row(
         children: [
-          const Icon(Icons.lock_outline_rounded,
-              size: 12, color: AarohaColors.outline),
-          const SizedBox(width: 6),
-          Text(
-            'Anonymous · Private · No data stored',
-            style: AarohaTextStyles.overline.copyWith(
-              color: AarohaColors.outline,
-              letterSpacing: 0.8,
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AarohaColors.primaryContainer,
+              borderRadius: BorderRadius.circular(12),
             ),
+            child: const Icon(Icons.self_improvement_rounded,
+                color: AarohaColors.onPrimary, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Swasthi', style: AarohaTextStyles.titleMd),
+              Text(
+                'Your companion · Always here',
+                style: AarohaTextStyles.bodySm.copyWith(
+                  color: AarohaColors.onSurfaceVariant,
+                  fontSize: 11,
+                ),
+              ),
+            ],
           ),
         ],
       ),
-    );
-  }
-}
-
-// ── Chat Bubble ────────────────────────────────────────────────
-class _ChatBubble extends StatelessWidget {
-  final _ChatMessage message;
-  const _ChatBubble({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    final isAI = message.isAI;
-    return Row(
-      mainAxisAlignment:
-          isAI ? MainAxisAlignment.start : MainAxisAlignment.end,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (isAI) ...[
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: AarohaColors.primary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              Icons.smart_toy_rounded,
-              color: AarohaColors.onPrimary,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 10),
-        ],
-        Flexible(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: isAI
-                  ? AarohaColors.mintSurface
-                  : AarohaColors.primaryContainer,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(isAI ? 4 : 20),
-                topRight: Radius.circular(isAI ? 20 : 4),
-                bottomLeft: const Radius.circular(20),
-                bottomRight: const Radius.circular(20),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: isAI
-                  ? CrossAxisAlignment.start
-                  : CrossAxisAlignment.end,
-              children: [
-                Text(
-                  message.text,
-                  style: AarohaTextStyles.bodyMd.copyWith(
-                    color: isAI
-                        ? AarohaColors.onSurface
-                        : AarohaColors.onPrimary,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  message.time,
-                  style: AarohaTextStyles.bodySm.copyWith(
-                    fontSize: 10,
-                    color: isAI
-                        ? AarohaColors.outline
-                        : AarohaColors.onPrimary.withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh_rounded,
+              color: AarohaColors.onSurfaceVariant),
+          tooltip: 'New conversation',
+          onPressed: onReset,
         ),
-        if (!isAI) ...[
-          const SizedBox(width: 10),
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: AarohaColors.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              Icons.person_rounded,
-              color: AarohaColors.primary,
-              size: 18,
-            ),
-          ),
-        ],
+        const SizedBox(width: 4),
       ],
     );
   }
 }
 
-// ── Suggestion Chips ───────────────────────────────────────────
-class _SuggestionChips extends StatelessWidget {
+// ── Privacy Badge ─────────────────────────────────────────────
+class _PrivacyBadge extends StatelessWidget {
+  const _PrivacyBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: AarohaColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline_rounded,
+                size: 12, color: AarohaColors.outline),
+            const SizedBox(width: 6),
+            Text(
+              'Anonymous · Private · No data stored',
+              style: AarohaTextStyles.bodySm.copyWith(
+                color: AarohaColors.outline,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Chat Bubble ───────────────────────────────────────────────
+class _ChatBubble extends StatelessWidget {
+  final ChatMessage message;
+  const _ChatBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final isUser = message.isUser;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isUser) _Avatar(isUser: false),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isUser
+                    ? AarohaColors.primary
+                    : AarohaColors.surfaceContainerLow,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(isUser ? 18 : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : 18),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.text,
+                    style: AarohaTextStyles.bodyMd.copyWith(
+                      color: isUser
+                          ? AarohaColors.onPrimary
+                          : AarohaColors.onSurface,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    message.formattedTime,
+                    style: AarohaTextStyles.bodySm.copyWith(
+                      color: isUser
+                          ? AarohaColors.onPrimary.withOpacity(0.6)
+                          : AarohaColors.outline,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (isUser) _Avatar(isUser: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  final bool isUser;
+  const _Avatar({required this.isUser});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      margin: const EdgeInsets.only(bottom: 2),
+      decoration: BoxDecoration(
+        color: isUser
+            ? AarohaColors.surfaceContainerHigh
+            : AarohaColors.primaryContainer,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(
+        isUser ? Icons.person_rounded : Icons.self_improvement_rounded,
+        color: isUser ? AarohaColors.onSurfaceVariant : AarohaColors.onPrimary,
+        size: 17,
+      ),
+    );
+  }
+}
+
+// ── Typing Bubble ─────────────────────────────────────────────
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          _Avatar(isUser: false),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            decoration: BoxDecoration(
+              color: AarohaColors.surfaceContainerLow,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(18),
+                topRight: Radius.circular(18),
+                bottomRight: Radius.circular(18),
+                bottomLeft: Radius.circular(4),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(
+                3,
+                (i) => Container(
+                  width: 7,
+                  height: 7,
+                  margin: EdgeInsets.only(right: i < 2 ? 5 : 0),
+                  decoration: BoxDecoration(
+                    color: AarohaColors.primary.withOpacity(0.55),
+                    shape: BoxShape.circle,
+                  ),
+                )
+                    .animate(onPlay: (c) => c.repeat())
+                    .scaleXY(
+                      begin: 0.6,
+                      end: 1.0,
+                      delay: Duration(milliseconds: i * 160),
+                      duration: 400.ms,
+                      curve: Curves.easeInOut,
+                    )
+                    .then()
+                    .scaleXY(end: 0.6, duration: 400.ms),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Suggestion Chips ──────────────────────────────────────────
+class _SuggestionRow extends StatelessWidget {
   final List<String> chips;
-  final ValueChanged<String> onTap;
-  const _SuggestionChips({required this.chips, required this.onTap});
+  final void Function(String) onTap;
+  final bool enabled;
+  const _SuggestionRow(
+      {required this.chips, required this.onTap, required this.enabled});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 44,
+      height: 42,
       child: ListView.separated(
-        scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
         itemCount: chips.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) => GestureDetector(
-          onTap: () => onTap(chips[i]),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: AarohaColors.surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
-              border: Border.all(
-                color: AarohaColors.outlineVariant,
-                width: 1,
+          onTap: enabled
+              ? () {
+                  HapticFeedback.selectionClick();
+                  onTap(chips[i]);
+                }
+              : null,
+          child: AnimatedOpacity(
+            opacity: enabled ? 1.0 : 0.45,
+            duration: const Duration(milliseconds: 200),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AarohaColors.surfaceContainerLow,
+                borderRadius:
+                    BorderRadius.circular(AarohaConstants.radiusFull),
+                border: Border.all(
+                    color: AarohaColors.outlineVariant, width: 1),
               ),
-            ),
-            child: Text(
-              chips[i],
-              style: AarohaTextStyles.labelMd.copyWith(
-                color: AarohaColors.secondary,
+              child: Text(
+                chips[i],
+                style: AarohaTextStyles.labelMd.copyWith(
+                  color: AarohaColors.onSurfaceVariant,
+                ),
               ),
             ),
           ),
@@ -331,19 +457,18 @@ class _SuggestionChips extends StatelessWidget {
 // ── Mood Strip ────────────────────────────────────────────────
 class _MoodStrip extends StatelessWidget {
   final List<(String, String)> moods;
-  final int? selected;
-  final ValueChanged<int> onSelect;
-  const _MoodStrip({
-    required this.moods,
-    required this.selected,
-    required this.onSelect,
-  });
+  final int selectedIndex;
+  final void Function(int) onTap;
+  const _MoodStrip(
+      {required this.moods,
+      required this.selectedIndex,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
         color: AarohaColors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(AarohaConstants.radiusMd),
@@ -354,38 +479,46 @@ class _MoodStrip extends StatelessWidget {
           Text(
             'HOW ARE YOU FEELING?',
             style: AarohaTextStyles.overline.copyWith(
-              color: AarohaColors.outline,
+              color: AarohaColors.onSurfaceVariant,
+              letterSpacing: 1.1,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: moods.asMap().entries.map((entry) {
-              final i = entry.key;
-              final m = entry.value;
-              final isSelected = selected == i;
+            children: moods.asMap().entries.map((e) {
+              final selected = e.key == selectedIndex;
               return GestureDetector(
-                onTap: () => onSelect(i),
+                onTap: () => onTap(e.key),
                 child: AnimatedContainer(
-                  duration: 200.ms,
-                  padding: const EdgeInsets.all(8),
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: isSelected
-                        ? AarohaColors.surfaceContainerHighest
+                    color: selected
+                        ? AarohaColors.primary.withOpacity(0.12)
                         : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Column(
                     children: [
-                      Text(m.$1, style: const TextStyle(fontSize: 24)),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(fontSize: selected ? 28 : 22),
+                        child: Text(e.value.$1),
+                      ),
                       const SizedBox(height: 2),
                       Text(
-                        m.$2,
+                        e.value.$2,
                         style: AarohaTextStyles.bodySm.copyWith(
-                          color: isSelected
+                          color: selected
                               ? AarohaColors.primary
                               : AarohaColors.outline,
                           fontSize: 10,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                       ),
                     ],
@@ -403,72 +536,87 @@ class _MoodStrip extends StatelessWidget {
 // ── Input Bar ─────────────────────────────────────────────────
 class _InputBar extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool isTyping;
   final VoidCallback onSend;
-  const _InputBar({required this.controller, required this.onSend});
+  const _InputBar({
+    required this.controller,
+    required this.focusNode,
+    required this.isTyping,
+    required this.onSend,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).padding.bottom;
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        16, 8, 16, MediaQuery.of(context).padding.bottom + 8,
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: AarohaColors.surfaceContainerHighest.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(AarohaConstants.radiusXl),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 4),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                style: AarohaTextStyles.bodyMd,
-                decoration: InputDecoration(
-                  hintText: 'Share what\'s on your mind…',
-                  hintStyle: AarohaTextStyles.bodyMd.copyWith(
-                    color: AarohaColors.outline,
-                  ),
-                  border: InputBorder.none,
-                  filled: false,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 10,
-                  ),
+      padding: EdgeInsets.fromLTRB(16, 10, 16, bottom + 10),
+      color: AarohaColors.background,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              enabled: !isTyping,
+              maxLines: 4,
+              minLines: 1,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => onSend(),
+              style: AarohaTextStyles.bodyMd
+                  .copyWith(color: AarohaColors.onSurface),
+              decoration: InputDecoration(
+                hintText: 'Share what\'s on your mind...',
+                hintStyle: AarohaTextStyles.bodyMd
+                    .copyWith(color: AarohaColors.outline),
+                filled: true,
+                fillColor: AarohaColors.surfaceContainerLow,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                      AarohaConstants.radiusFull),
+                  borderSide: BorderSide.none,
                 ),
-                onSubmitted: (_) => onSend(),
-                textInputAction: TextInputAction.send,
-              ),
-            ),
-            GestureDetector(
-              onTap: onSend,
-              child: Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: AarohaColors.primary,
-                  borderRadius: BorderRadius.circular(14),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                      AarohaConstants.radiusFull),
+                  borderSide: BorderSide.none,
                 ),
-                child: const Icon(
-                  Icons.send_rounded,
-                  color: AarohaColors.onPrimary,
-                  size: 20,
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                      AarohaConstants.radiusFull),
+                  borderSide: BorderSide(
+                      color: AarohaColors.primary.withOpacity(0.4),
+                      width: 1.5),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: isTyping ? null : onSend,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color:
+                    isTyping ? AarohaColors.outline : AarohaColors.primary,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isTyping
+                    ? Icons.hourglass_top_rounded
+                    : Icons.send_rounded,
+                color: AarohaColors.onPrimary,
+                size: 20,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
-}
-
-class _ChatMessage {
-  final String text;
-  final bool isAI;
-  final String time;
-  const _ChatMessage({
-    required this.text,
-    required this.isAI,
-    required this.time,
-  });
 }

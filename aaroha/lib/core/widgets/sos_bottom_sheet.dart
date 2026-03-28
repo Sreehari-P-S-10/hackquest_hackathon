@@ -33,7 +33,7 @@ class SosBottomSheet extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: AarohaColors.tertiary.withOpacity(0.12),
+                  color: AarohaColors.tertiary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Icon(
@@ -172,7 +172,7 @@ class _HelplineTile extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: AarohaColors.primary.withOpacity(0.08),
+                color: AarohaColors.primary.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
