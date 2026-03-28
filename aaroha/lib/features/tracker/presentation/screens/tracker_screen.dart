@@ -5,6 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/widgets/shared_widgets.dart';
+import '../../../../core/services/notification_service.dart';
 
 class TrackerScreen extends StatefulWidget {
   const TrackerScreen({super.key});
@@ -21,6 +22,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
     const _Goal('Talk to Swasthi',       'AI companion check-in',   false),
     const _Goal('Evening meditation',    'Shanti Space · 10 min',   false),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Schedule noon reminder for any goals already incomplete at launch
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final incomplete = _goals
+          .where((g) => !g.done)
+          .map((g) => g.title)
+          .toList();
+      NotificationService.instance.scheduleIncompleteGoalReminder(incomplete);
+    });
+  }
 
   void _restartStreak() {
     showDialog(
@@ -89,11 +103,24 @@ class _TrackerScreenState extends State<TrackerScreen> {
               padding: const EdgeInsets.only(bottom: 10),
               child: _GoalTile(
                 goal: g,
-                onToggle: () {
+                onToggle: () async {
                   HapticFeedback.selectionClick();
+                  final wasCompleted = g.done;
                   setState(() => _goals[i] = _Goal(
                     g.title, g.subtitle, !g.done,
                   ));
+                  // Feature 1: notify on completion (not un-completion)
+                  if (!wasCompleted) {
+                    await NotificationService.instance
+                        .showGoalCompletedNotification(g.title);
+                  }
+                  // Feature 3: update noon reminder with current incomplete list
+                  final incomplete = _goals
+                      .where((goal) => !goal.done)
+                      .map((goal) => goal.title)
+                      .toList();
+                  await NotificationService.instance
+                      .scheduleIncompleteGoalReminder(incomplete);
                 },
               )
                   .animate(delay: Duration(milliseconds: 120 + i * 60))
@@ -184,7 +211,6 @@ class _StreakHeroCard extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // Decorative blobs
           Positioned(
             top: -40, right: -40,
             child: Container(
@@ -214,7 +240,6 @@ class _StreakHeroCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              // Giant days number
               Text(
                 '$daysSober',
                 style: AarohaTextStyles.displayLg.copyWith(
@@ -229,7 +254,6 @@ class _StreakHeroCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              // Milestone row
               Container(
                 padding: const EdgeInsets.only(top: 20),
                 decoration: BoxDecoration(
