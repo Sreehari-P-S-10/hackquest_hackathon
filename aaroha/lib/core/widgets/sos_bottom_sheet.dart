@@ -37,7 +37,7 @@ class SosBottomSheet extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Icon(
-                  Icons.emergency_home_rounded,
+                  Icons.crisis_alert_rounded,
                   color: AarohaColors.tertiary,
                   size: 26,
                 ),
