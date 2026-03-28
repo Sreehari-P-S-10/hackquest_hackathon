@@ -44,6 +44,13 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
+  # ── Audio (Shanti Space) ─────────────────────────────────
+  # Local .mp3 soundscapes (Rain, Forest, Ocean, Night)
+  audioplayers: ^6.1.0
+
+  # Text-to-speech voice guidance during breathwork
+  flutter_tts: ^4.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -72,3 +79,11 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/animations/
+    # ── Audio assets for Shanti Space soundscapes ─────────
+    # Drop your .mp3 files here before running `flutter pub get`
+    # Required files:
+    #   assets/audio/rain.mp3
+    #   assets/audio/forest.mp3
+    #   assets/audio/ocean.mp3
+    #   assets/audio/night.mp3
+    - assets/audio/

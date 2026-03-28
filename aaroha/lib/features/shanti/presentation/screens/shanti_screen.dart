@@ -2,10 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/widgets/shared_widgets.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Breathwork mode enum
+// ─────────────────────────────────────────────────────────────────────────────
+enum BreathMode { breathing478, box }
 
 class ShantiScreen extends StatefulWidget {
   const ShantiScreen({super.key});
@@ -19,16 +26,29 @@ class _ShantiScreenState extends State<ShantiScreen>
   // ── Breathwork state ──────────────────────────────────────
   bool _isBreathing = false;
   String _breatheLabel = 'Breathe In…';
+  BreathMode _breathMode = BreathMode.breathing478;
   late AnimationController _breathCtrl;
   late Animation<double> _breathScale;
   Timer? _breathTimer;
-  int _breathPhase = 0; // 0=in,1=hold,2=out,3=hold
+  int _breathPhase = 0;
 
-  // ── Soundscape ────────────────────────────────────────────
+  // ── TTS ───────────────────────────────────────────────────
+  final FlutterTts _tts = FlutterTts();
+  bool _voiceEnabled = true;
+
+  // ── Soundscape players ────────────────────────────────────
+  // One AudioPlayer per soundscape channel so they can overlap/mix freely.
+  final List<AudioPlayer> _soundPlayers = List.generate(4, (_) => AudioPlayer());
   final Set<int> _activeSounds = {};
 
-  // ── Journal ───────────────────────────────────────────────
-  final _journalCtrl = TextEditingController();
+  // Asset paths — drop your real .mp3 files at these paths in the project.
+  // See the "Audio file setup" section at the bottom of this file.
+  static const _soundAssets = [
+    'assets/audio/rain.mp3',
+    'assets/audio/forest.mp3',
+    'assets/audio/ocean.mp3',
+    'assets/audio/night.mp3',
+  ];
 
   static const _soundscapes = [
     ('Rain',   Icons.water_drop_rounded),
@@ -37,9 +57,30 @@ class _ShantiScreenState extends State<ShantiScreen>
     ('Night',  Icons.nights_stay_rounded),
   ];
 
+  // ── Craving journal ───────────────────────────────────────
+  final _journalCtrl = TextEditingController();
+
+  // ── 4-7-8 phases ─────────────────────────────────────────
+  static const _phases478 = [
+    (4, 'Breathe In…',  'Breathe in'),
+    (7, 'Hold…',         'Hold'),
+    (8, 'Breathe Out…', 'Breathe out'),
+    (2, 'Hold…',         'Hold'),
+  ];
+
+  // ── Box breathing phases ──────────────────────────────────
+  static const _phasesBox = [
+    (4, 'Breathe In…',  'Breathe in'),
+    (4, 'Hold…',         'Hold'),
+    (4, 'Breathe Out…', 'Breathe out'),
+    (4, 'Hold…',         'Hold'),
+  ];
+
+  // ─────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
+
     _breathCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
@@ -47,6 +88,23 @@ class _ShantiScreenState extends State<ShantiScreen>
     _breathScale = Tween<double>(begin: 0.85, end: 1.15).animate(
       CurvedAnimation(parent: _breathCtrl, curve: Curves.easeInOut),
     );
+
+    _initTts();
+    _initAudioPlayers();
+  }
+
+  Future<void> _initTts() async {
+    await _tts.setLanguage('en-IN');
+    await _tts.setSpeechRate(0.42);   // calm, unhurried pace
+    await _tts.setVolume(1.0);
+    await _tts.setPitch(0.95);        // slightly lower = more soothing
+  }
+
+  Future<void> _initAudioPlayers() async {
+    for (final player in _soundPlayers) {
+      await player.setReleaseMode(ReleaseMode.loop);
+      await player.setVolume(0.6);
+    }
   }
 
   @override
@@ -54,9 +112,43 @@ class _ShantiScreenState extends State<ShantiScreen>
     _breathCtrl.dispose();
     _breathTimer?.cancel();
     _journalCtrl.dispose();
+    _tts.stop();
+    for (final p in _soundPlayers) {
+      p.dispose();
+    }
     super.dispose();
   }
 
+  // ── Soundscape toggle ─────────────────────────────────────
+  Future<void> _toggleSound(int index) async {
+    HapticFeedback.selectionClick();
+    final player = _soundPlayers[index];
+
+    if (_activeSounds.contains(index)) {
+      await player.stop();
+      setState(() => _activeSounds.remove(index));
+    } else {
+      try {
+        await player.play(AssetSource(_soundAssets[index].replaceFirst('assets/', '')));
+        setState(() => _activeSounds.add(index));
+      } catch (e) {
+        // Asset not found — show a friendly snackbar
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_soundscapes[index].$1} audio not found.\n'
+                'Drop "${_soundAssets[index]}" into your project assets.',
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // ── Breathwork ────────────────────────────────────────────
   void _toggleBreath() {
     HapticFeedback.mediumImpact();
     setState(() => _isBreathing = !_isBreathing);
@@ -66,32 +158,37 @@ class _ShantiScreenState extends State<ShantiScreen>
     } else {
       _breathCtrl.stop();
       _breathTimer?.cancel();
+      _tts.stop();
       setState(() => _breatheLabel = 'Breathe In…');
     }
   }
 
   void _runBreathCycle() {
-    // 4-7-8 pattern
-    final phases = [
-      (4, 'Breathe In…'),
-      (7, 'Hold…'),
-      (8, 'Breathe Out…'),
-      (2, 'Hold…'),
-    ];
-
     _breathPhase = 0;
+    final phases = _breathMode == BreathMode.breathing478 ? _phases478 : _phasesBox;
     _nextPhase(phases);
   }
 
-  void _nextPhase(List<(int, String)> phases) {
+  void _nextPhase(List<(int, String, String)> phases) {
     if (!_isBreathing) return;
-    final (secs, label) = phases[_breathPhase % phases.length];
-    setState(() => _breatheLabel = label);
+    final phaseIndex = _breathPhase % phases.length;
+    final (secs, uiLabel, ttsText) = phases[phaseIndex];
 
-    if (_breathPhase % phases.length == 0) {
-      _breathCtrl.forward(from: 0);
-    } else if (_breathPhase % phases.length == 2) {
-      _breathCtrl.reverse(from: 1);
+    setState(() => _breatheLabel = uiLabel);
+
+    // Animate orb
+    if (phaseIndex == 0) {
+      _breathCtrl.forward(from: 0);          // inhale → expand
+    } else if (phaseIndex == 2) {
+      _breathCtrl.reverse(from: 1);          // exhale → contract
+    }
+
+    // TTS
+    if (_voiceEnabled) {
+      _tts.stop().then((_) {
+        final duration = secs == 1 ? '1 second' : '$secs seconds';
+        _tts.speak('$ttsText… for $duration');
+      });
     }
 
     _breathTimer = Timer(Duration(seconds: secs), () {
@@ -100,6 +197,20 @@ class _ShantiScreenState extends State<ShantiScreen>
     });
   }
 
+  void _switchBreathMode(BreathMode mode) {
+    if (_isBreathing) {
+      _breathCtrl.stop();
+      _breathTimer?.cancel();
+      _tts.stop();
+      setState(() {
+        _isBreathing = false;
+        _breatheLabel = 'Breathe In…';
+      });
+    }
+    setState(() => _breathMode = mode);
+  }
+
+  // ─────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -117,14 +228,28 @@ class _ShantiScreenState extends State<ShantiScreen>
             ),
           ).animate(delay: 50.ms).fadeIn(),
 
-          const SizedBox(height: 28),
+          const SizedBox(height: 16),
+
+          // ── Breath mode selector ──────────────────────────
+          _BreathModeToggle(
+            selected: _breathMode,
+            onSelect: _switchBreathMode,
+          ).animate(delay: 80.ms).fadeIn(),
+
+          const SizedBox(height: 20),
 
           // ── Breathwork orb ────────────────────────────────
           _BreathworkOrb(
             scale: _breathScale,
             label: _breatheLabel,
             isActive: _isBreathing,
+            mode: _breathMode,
+            voiceEnabled: _voiceEnabled,
             onToggle: _toggleBreath,
+            onVoiceToggle: () {
+              setState(() => _voiceEnabled = !_voiceEnabled);
+              if (!_voiceEnabled) _tts.stop();
+            },
           ).animate(delay: 100.ms).fadeIn().scale(begin: const Offset(0.9, 0.9)),
 
           const SizedBox(height: 32),
@@ -140,16 +265,7 @@ class _ShantiScreenState extends State<ShantiScreen>
           _SoundscapeCard(
             soundscapes: _soundscapes,
             active: _activeSounds,
-            onToggle: (i) {
-              HapticFeedback.selectionClick();
-              setState(() {
-                if (_activeSounds.contains(i)) {
-                  _activeSounds.remove(i);
-                } else {
-                  _activeSounds.add(i);
-                }
-              });
-            },
+            onToggle: _toggleSound,
           ).animate(delay: 280.ms).fadeIn(),
 
           const SizedBox(height: 24),
@@ -172,19 +288,92 @@ class _ShantiScreenState extends State<ShantiScreen>
   }
 }
 
+// ── Breath mode toggle ────────────────────────────────────────
+class _BreathModeToggle extends StatelessWidget {
+  final BreathMode selected;
+  final ValueChanged<BreathMode> onSelect;
+  const _BreathModeToggle({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AarohaColors.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
+      ),
+      child: Row(
+        children: [
+          _ModeChip(
+            label: '4-7-8 Breathing',
+            isSelected: selected == BreathMode.breathing478,
+            onTap: () => onSelect(BreathMode.breathing478),
+          ),
+          _ModeChip(
+            label: 'Box Breathing',
+            isSelected: selected == BreathMode.box,
+            onTap: () => onSelect(BreathMode.box),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _ModeChip({required this.label, required this.isSelected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? AarohaColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: AarohaTextStyles.labelMd.copyWith(
+              color: isSelected ? AarohaColors.onPrimary : AarohaColors.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Breathwork Orb ────────────────────────────────────────────
 class _BreathworkOrb extends StatelessWidget {
   final Animation<double> scale;
   final String label;
   final bool isActive;
+  final BreathMode mode;
+  final bool voiceEnabled;
   final VoidCallback onToggle;
+  final VoidCallback onVoiceToggle;
 
   const _BreathworkOrb({
     required this.scale,
     required this.label,
     required this.isActive,
+    required this.mode,
+    required this.voiceEnabled,
     required this.onToggle,
+    required this.onVoiceToggle,
   });
+
+  String get _modeDescription => mode == BreathMode.breathing478
+      ? '4-7-8 technique'
+      : 'Box breathing • 4-4-4-4';
 
   @override
   Widget build(BuildContext context) {
@@ -244,43 +433,73 @@ class _BreathworkOrb extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           label,
-          style: AarohaTextStyles.titleMd.copyWith(
-            color: AarohaColors.onSurface,
-          ),
+          style: AarohaTextStyles.titleMd.copyWith(color: AarohaColors.onSurface),
         ),
         Text(
-          '4-7-8 breathing technique',
-          style: AarohaTextStyles.bodySm.copyWith(
-            color: AarohaColors.outline,
-          ),
+          _modeDescription,
+          style: AarohaTextStyles.bodySm.copyWith(color: AarohaColors.outline),
         ),
         const SizedBox(height: 16),
-        GestureDetector(
-          onTap: onToggle,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-            decoration: BoxDecoration(
-              gradient: isActive ? null : AarohaColors.heroGradientAngled,
-              color: isActive ? AarohaColors.surfaceContainerHigh : null,
-              borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
-              boxShadow: isActive ? null : [
-                BoxShadow(
-                  color: AarohaColors.primary.withOpacity(0.2),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+
+        // Start / Stop + Voice toggle row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: onToggle,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: isActive ? null : AarohaColors.heroGradientAngled,
+                  color: isActive ? AarohaColors.surfaceContainerHigh : null,
+                  borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
+                  boxShadow: isActive ? null : [
+                    BoxShadow(
+                      color: AarohaColors.primary.withOpacity(0.2),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Text(
-              isActive ? 'Stop' : 'Start Breathing',
-              style: AarohaTextStyles.labelLg.copyWith(
-                color: isActive
-                    ? AarohaColors.onSurface
-                    : AarohaColors.onPrimary,
+                child: Text(
+                  isActive ? 'Stop' : 'Start Breathing',
+                  style: AarohaTextStyles.labelLg.copyWith(
+                    color: isActive ? AarohaColors.onSurface : AarohaColors.onPrimary,
+                  ),
+                ),
               ),
             ),
-          ),
+            const SizedBox(width: 12),
+            // Voice on/off toggle
+            GestureDetector(
+              onTap: onVoiceToggle,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: voiceEnabled
+                      ? AarohaColors.primary.withOpacity(0.12)
+                      : AarohaColors.surfaceContainerHigh,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  voiceEnabled ? Icons.record_voice_over_rounded : Icons.voice_over_off_rounded,
+                  color: voiceEnabled ? AarohaColors.primary : AarohaColors.outline,
+                  size: 20,
+                ),
+              ),
+            ),
+          ],
         ),
+
+        if (isActive) ...[
+          const SizedBox(height: 10),
+          Text(
+            voiceEnabled ? 'Voice guidance on' : 'Voice guidance off',
+            style: AarohaTextStyles.bodySm.copyWith(color: AarohaColors.outline),
+          ),
+        ],
       ],
     );
   }
@@ -312,9 +531,7 @@ class _CalmToolsGrid extends StatelessWidget {
     return Row(
       children: tools.map((t) => Expanded(
         child: Container(
-          margin: EdgeInsets.only(
-            right: t == tools.last ? 0 : 8,
-          ),
+          margin: EdgeInsets.only(right: t == tools.last ? 0 : 8),
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: t.$4,
@@ -325,18 +542,10 @@ class _CalmToolsGrid extends StatelessWidget {
             children: [
               Icon(t.$3, color: t.$5, size: 28),
               const SizedBox(height: 12),
-              Text(
-                t.$1,
-                style: AarohaTextStyles.labelLg.copyWith(
-                  color: t.$5,
-                ),
-              ),
-              Text(
-                t.$2,
-                style: AarohaTextStyles.bodySm.copyWith(
-                  color: t.$5.withOpacity(0.7),
-                ),
-              ),
+              Text(t.$1, style: AarohaTextStyles.labelLg.copyWith(color: t.$5)),
+              Text(t.$2, style: AarohaTextStyles.bodySm.copyWith(
+                color: t.$5.withOpacity(0.7),
+              )),
             ],
           ),
         ),
@@ -349,7 +558,7 @@ class _CalmToolsGrid extends StatelessWidget {
 class _SoundscapeCard extends StatelessWidget {
   final List<(String, IconData)> soundscapes;
   final Set<int> active;
-  final ValueChanged<int> onToggle;
+  final void Function(int) onToggle;
 
   const _SoundscapeCard({
     required this.soundscapes,
@@ -370,19 +579,20 @@ class _SoundscapeCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.music_note_rounded,
-                color: AarohaColors.primary,
-                size: 22,
-              ),
+              const Icon(Icons.music_note_rounded, color: AarohaColors.primary, size: 22),
               const SizedBox(width: 10),
-              Text(
-                'Soothing Soundscapes',
-                style: AarohaTextStyles.titleMd.copyWith(
-                  color: AarohaColors.onSurface,
-                ),
-              ),
+              Text('Soothing Soundscapes',
+                  style: AarohaTextStyles.titleMd.copyWith(color: AarohaColors.onSurface)),
             ],
+          ),
+          const SizedBox(height: 6),
+          // Setup hint
+          Text(
+            'Add .mp3 files to assets/audio/ — see setup instructions.',
+            style: AarohaTextStyles.bodySm.copyWith(
+              color: AarohaColors.outline,
+              fontStyle: FontStyle.italic,
+            ),
           ),
           const SizedBox(height: 14),
           Wrap(
@@ -396,15 +606,12 @@ class _SoundscapeCard extends StatelessWidget {
                 onTap: () => onToggle(i),
                 child: AnimatedContainer(
                   duration: 200.ms,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: isActive
                         ? AarohaColors.primary
                         : AarohaColors.surfaceContainerHigh,
-                    borderRadius:
-                        BorderRadius.circular(AarohaConstants.radiusFull),
+                    borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -425,6 +632,11 @@ class _SoundscapeCard extends StatelessWidget {
                               : AarohaColors.onSurfaceVariant,
                         ),
                       ),
+                      if (isActive) ...[
+                        const SizedBox(width: 6),
+                        // Playing indicator dots
+                        _PlayingDots(),
+                      ],
                     ],
                   ),
                 ),
@@ -433,6 +645,53 @@ class _SoundscapeCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Animated "playing" indicator — three dots that pulse
+class _PlayingDots extends StatefulWidget {
+  @override
+  State<_PlayingDots> createState() => _PlayingDotsState();
+}
+
+class _PlayingDotsState extends State<_PlayingDots>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) => AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          final t = (_ctrl.value + i * 0.2).clamp(0.0, 1.0);
+          return Container(
+            width: 4, height: 4,
+            margin: const EdgeInsets.symmetric(horizontal: 1),
+            decoration: BoxDecoration(
+              color: AarohaColors.onPrimary.withOpacity(0.4 + 0.6 * t),
+              shape: BoxShape.circle,
+            ),
+          );
+        },
+      )),
     );
   }
 }
@@ -455,18 +714,10 @@ class _CravingJournal extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.edit_note_rounded,
-                color: AarohaColors.primary,
-                size: 22,
-              ),
+              const Icon(Icons.edit_note_rounded, color: AarohaColors.primary, size: 22),
               const SizedBox(width: 10),
-              Text(
-                'Craving Journal',
-                style: AarohaTextStyles.titleMd.copyWith(
-                  color: AarohaColors.onSurface,
-                ),
-              ),
+              Text('Craving Journal',
+                  style: AarohaTextStyles.titleMd.copyWith(color: AarohaColors.onSurface)),
             ],
           ),
           const SizedBox(height: 12),
@@ -480,9 +731,7 @@ class _CravingJournal extends StatelessWidget {
             decoration: InputDecoration(
               hintText:
                   'What triggered this craving? Writing it down helps release its grip…',
-              hintStyle: AarohaTextStyles.bodyMd.copyWith(
-                color: AarohaColors.outline,
-              ),
+              hintStyle: AarohaTextStyles.bodyMd.copyWith(color: AarohaColors.outline),
               filled: true,
               fillColor: AarohaColors.surfaceContainer,
               border: OutlineInputBorder(
@@ -497,9 +746,7 @@ class _CravingJournal extends StatelessWidget {
             children: [
               Text(
                 'Anonymous · not saved',
-                style: AarohaTextStyles.bodySm.copyWith(
-                  color: AarohaColors.outline,
-                ),
+                style: AarohaTextStyles.bodySm.copyWith(color: AarohaColors.outline),
               ),
               GestureDetector(
                 onTap: () {
@@ -507,19 +754,14 @@ class _CravingJournal extends StatelessWidget {
                   HapticFeedback.mediumImpact();
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: AarohaColors.primary.withOpacity(0.1),
-                    borderRadius:
-                        BorderRadius.circular(AarohaConstants.radiusFull),
+                    borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
                   ),
                   child: Text(
                     'Release it',
-                    style: AarohaTextStyles.labelMd.copyWith(
-                      color: AarohaColors.primary,
-                    ),
+                    style: AarohaTextStyles.labelMd.copyWith(color: AarohaColors.primary),
                   ),
                 ),
               ),
@@ -530,3 +772,28 @@ class _CravingJournal extends StatelessWidget {
     );
   }
 }
+
+/*
+╔══════════════════════════════════════════════════════════════╗
+║              AUDIO FILE SETUP INSTRUCTIONS                   ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  1. Create the directory:                                    ║
+║       aaroha/assets/audio/                                   ║
+║                                                              ║
+║  2. Add your .mp3 files (loopable ambient tracks work best): ║
+║       assets/audio/rain.mp3                                  ║
+║       assets/audio/forest.mp3                                ║
+║       assets/audio/ocean.mp3                                 ║
+║       assets/audio/night.mp3                                 ║
+║                                                              ║
+║  3. Free sources for ambient audio:                          ║
+║       • freesound.org  (CC0 licensed)                        ║
+║       • pixabay.com/music (free for apps)                    ║
+║       • zapsplat.com   (free tier available)                 ║
+║                                                              ║
+║  4. pubspec.yaml — add this under flutter > assets:          ║
+║       - assets/audio/                                        ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+*/
