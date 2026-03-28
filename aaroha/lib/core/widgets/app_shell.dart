@@ -9,17 +9,18 @@ import 'aaroha_app_bar.dart';
 import 'aaroha_drawer.dart';
 
 /// Persistent shell: Drawer + AppBar + BottomNav + SOS FAB
+/// Bottom nav: Tracker, Swasthi, Shanti, Ujjwal, Sangam (5 only)
+/// Hub is accessible exclusively via the left drawer
 class AppShell extends StatelessWidget {
   final StatefulNavigationShell navigationShell;
   const AppShell({super.key, required this.navigationShell});
 
-  static const _tabs = [
+  static const _bottomTabs = [
     _NavTab(icon: Icons.directions_walk_rounded, label: 'Tracker', index: 0),
     _NavTab(icon: Icons.smart_toy_rounded,        label: 'Swasthi', index: 1),
     _NavTab(icon: Icons.self_improvement_rounded, label: 'Shanti',  index: 2),
     _NavTab(icon: Icons.wb_sunny_rounded,         label: 'Ujjwal',  index: 3),
     _NavTab(icon: Icons.location_on_rounded,      label: 'Sangam',  index: 4),
-    _NavTab(icon: Icons.import_contacts_rounded,  label: 'Hub',     index: 5),
   ];
 
   void _onTabTapped(BuildContext context, int index) {
@@ -42,7 +43,6 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Swasthi (index 1) has its own input bar — hide FAB to avoid overlap
     final bool isSwasthiTab = navigationShell.currentIndex == 1;
 
     return Scaffold(
@@ -53,9 +53,8 @@ class AppShell extends StatelessWidget {
       bottomNavigationBar: _GlassBottomNav(
         currentIndex: navigationShell.currentIndex,
         onTap: (i) => _onTabTapped(context, i),
-        tabs: _tabs,
+        tabs: _bottomTabs,
       ),
-      // Hide FAB on Swasthi tab — SOS is still accessible via AppBar button
       floatingActionButton: isSwasthiTab
           ? null
           : FloatingActionButton(
@@ -70,6 +69,7 @@ class AppShell extends StatelessWidget {
   }
 }
 
+// ── Bottom Nav ────────────────────────────────────────────────
 class _GlassBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
