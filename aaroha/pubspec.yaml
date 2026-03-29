@@ -44,15 +44,18 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
-  # ── Audio (Shanti Space) ─────────────────────────────────
-  # Local .mp3 soundscapes (Rain, Forest, Ocean, Night)
+  # Audio (Shanti Space)
   audioplayers: ^6.1.0
-
-  # Text-to-speech voice guidance during breathwork
   flutter_tts: ^4.2.0
 
+  # Notifications
   flutter_local_notifications: ^18.0.1
   timezone: ^0.10.1
+
+  # Map (Sangam — OpenStreetMap, free, no API key)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
 
 dev_dependencies:
   flutter_test:
@@ -82,11 +85,4 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/animations/
-    # ── Audio assets for Shanti Space soundscapes ─────────
-    # Drop your .mp3 files here before running `flutter pub get`
-    # Required files:
-    #   assets/audio/rain.mp3
-    #   assets/audio/forest.mp3
-    #   assets/audio/ocean.mp3
-    #   assets/audio/night.mp3
     - assets/audio/
