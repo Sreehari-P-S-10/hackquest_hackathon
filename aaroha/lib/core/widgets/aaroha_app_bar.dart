@@ -1,9 +1,12 @@
+import 'package:aaroha/features/profile/presentations/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../constants/app_constants.dart';
 
-/// Persistent AppBar for all Aaroha screens
+
+/// Persistent AppBar for all Aaroha screens.
+/// The profile avatar in the top-right now navigates to ProfileScreen.
 class AarohaAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onSOS;
   final String? title;
@@ -86,16 +89,22 @@ class AarohaAppBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           ),
-        // Avatar
-        const Padding(
-          padding: EdgeInsets.only(right: 12),
-          child: CircleAvatar(
-            radius: 18,
-            backgroundColor: AarohaColors.surfaceContainerHighest,
-            child: Icon(
-              Icons.person_rounded,
-              color: AarohaColors.primary,
-              size: 20,
+
+        // ── Profile avatar — tapping opens ProfileScreen ─────
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ProfileScreen()),
+            ),
+            child: const CircleAvatar(
+              radius: 18,
+              backgroundColor: AarohaColors.surfaceContainerHighest,
+              child: Icon(
+                Icons.person_rounded,
+                color: AarohaColors.primary,
+                size: 20,
+              ),
             ),
           ),
         ),
