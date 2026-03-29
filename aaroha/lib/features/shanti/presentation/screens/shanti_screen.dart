@@ -214,10 +214,10 @@ class _ShantiScreenState extends ConsumerState<ShantiScreen> with TickerProvider
           ).animate(delay: 340.ms).fadeIn(),
 
           const SizedBox(height: 20),
-          const GradientButton(
-            label: 'Start Body Scan Guide',
-            icon: Icons.accessibility_new_rounded,
-          ).animate(delay: 400.ms).fadeIn(),
+          // const GradientButton(
+          //   label: 'Start Body Scan Guide',
+          //   icon: Icons.accessibility_new_rounded,
+          // ).animate(delay: 400.ms).fadeIn(),
         ],
       ),
     );
@@ -345,8 +345,7 @@ class _CalmToolsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final tools = [
       ('Box Breathing', '4-4-4-4 cycle', Icons.crop_square_rounded, AarohaColors.mintSurface, AarohaColors.primaryContainer),
-      ('Body Scan', '10 min guided', Icons.accessibility_new_rounded, AarohaColors.secondaryContainer.withOpacity(0.3), AarohaColors.secondary),
-    ];
+];
     return Row(children: tools.map((t) => Expanded(
       child: Container(
         margin: EdgeInsets.only(right: t == tools.last ? 0 : 8),
