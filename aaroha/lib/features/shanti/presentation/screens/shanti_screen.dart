@@ -213,11 +213,13 @@ class _ShantiScreenState extends ConsumerState<ShantiScreen> with TickerProvider
             },
           ).animate(delay: 340.ms).fadeIn(),
 
+          const SizedBox(height: 28),
+          const SectionHeader(title: 'Recovery Reads')
+              .animate(delay: 380.ms).fadeIn(),
+          const SizedBox(height: 12),
+          const _BlogSection().animate(delay: 420.ms).fadeIn(),
+
           const SizedBox(height: 20),
-          // const GradientButton(
-          //   label: 'Start Body Scan Guide',
-          //   icon: Icons.accessibility_new_rounded,
-          // ).animate(delay: 400.ms).fadeIn(),
         ],
       ),
     );
@@ -452,6 +454,169 @@ class _CravingJournal extends StatelessWidget {
           ),
         ]),
       ]),
+    );
+  }
+}
+
+// ── Blog Section ──────────────────────────────────────────────
+
+class _BlogPost {
+  final String title;
+  final String summary;
+  final String tag;
+  final String readTime;
+  final IconData icon;
+  const _BlogPost({
+    required this.title,
+    required this.summary,
+    required this.tag,
+    required this.readTime,
+    required this.icon,
+  });
+}
+
+class _BlogSection extends StatelessWidget {
+  const _BlogSection();
+
+  static const _posts = [
+    _BlogPost(
+      title: 'Why Cravings Peak at Night — and How to Ride Them Out',
+      summary: 'Understanding the science behind late-night urges helps you prepare, not panic.',
+      tag: 'Cravings',
+      readTime: '3 min read',
+      icon: Icons.nightlight_round,
+    ),
+    _BlogPost(
+      title: 'The 5-4-3-2-1 Grounding Technique for Tough Moments',
+      summary: 'A simple sensory exercise that pulls you back to the present when cravings feel overwhelming.',
+      tag: 'Mindfulness',
+      readTime: '4 min read',
+      icon: Icons.spa_rounded,
+    ),
+    _BlogPost(
+      title: 'What Happens to Your Brain After 30 Days Sober',
+      summary: 'Neuroplasticity is real. Here is what research says about recovery milestones.',
+      tag: 'Science',
+      readTime: '5 min read',
+      icon: Icons.psychology_rounded,
+    ),
+    _BlogPost(
+      title: 'Talking to Loved Ones About Your Recovery Journey',
+      summary: 'Practical language and framing that protects your boundaries while staying open.',
+      tag: 'Relationships',
+      readTime: '4 min read',
+      icon: Icons.favorite_outline_rounded,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: _posts
+          .map((post) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _BlogCard(post: post),
+              ))
+          .toList(),
+    );
+  }
+}
+
+class _BlogCard extends StatelessWidget {
+  final _BlogPost post;
+  const _BlogCard({required this.post});
+
+  static const _tagColors = {
+    'Cravings':      (Color(0xFFFFF3CD), Color(0xFF856404)),
+    'Mindfulness':   (Color(0xFFD1FAE5), Color(0xFF065F46)),
+    'Science':       (Color(0xFFDBEAFE), Color(0xFF1E40AF)),
+    'Relationships': (Color(0xFFFFE4E6), Color(0xFF9F1239)),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final tagColor = _tagColors[post.tag] ?? (AarohaColors.surfaceContainerHigh, AarohaColors.onSurfaceVariant);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AarohaColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AarohaConstants.radiusXl),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Icon badge ──────────────────────────────────
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AarohaColors.primary.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(AarohaConstants.radiusMd),
+            ),
+            child: Icon(post.icon, color: AarohaColors.primary, size: 24),
+          ),
+          const SizedBox(width: 14),
+          // ── Text content ────────────────────────────────
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Tag + read time row
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: tagColor.$1,
+                        borderRadius: BorderRadius.circular(AarohaConstants.radiusFull),
+                      ),
+                      child: Text(
+                        post.tag,
+                        style: AarohaTextStyles.labelSm.copyWith(color: tagColor.$2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      post.readTime,
+                      style: AarohaTextStyles.bodySm.copyWith(color: AarohaColors.outline),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  post.title,
+                  style: AarohaTextStyles.labelLg.copyWith(
+                    color: AarohaColors.onSurface,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  post.summary,
+                  style: AarohaTextStyles.bodySm.copyWith(
+                    color: AarohaColors.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      'Read article',
+                      style: AarohaTextStyles.labelMd.copyWith(color: AarohaColors.primary),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_forward_rounded, color: AarohaColors.primary, size: 14),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

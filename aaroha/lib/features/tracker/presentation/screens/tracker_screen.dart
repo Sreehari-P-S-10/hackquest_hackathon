@@ -8,6 +8,8 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/widgets/shared_widgets.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../profile/data/profile_providers.dart';
+import '../../data/streak_provider.dart';
+import '../../domain/streak_model.dart';
 
 class TrackerScreen extends ConsumerStatefulWidget {
   const TrackerScreen({super.key});
@@ -17,19 +19,12 @@ class TrackerScreen extends ConsumerStatefulWidget {
 }
 
 class _TrackerScreenState extends ConsumerState<TrackerScreen> {
-  int _daysSober = 12;
-  final List<_Goal> _goals = [
-    const _Goal('Morning check-in',   'Completed at 7:30 AM',  true),
-    const _Goal('10 min breathwork',  'Completed at 8:00 AM',  true),
-    const _Goal('Talk to Swasthi',    'AI companion check-in', false),
-    const _Goal('Evening meditation', 'Shanti Space · 10 min', false),
-  ];
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final incomplete = _goals.where((g) => !g.done).map((g) => g.title).toList();
+      final goals = ref.read(goalsProvider);
+      final incomplete = goals.where((g) => !g.isCompleted).map((g) => g.title).toList();
       NotificationService.instance.scheduleIncompleteGoalReminder(incomplete);
     });
   }
@@ -51,10 +46,9 @@ class _TrackerScreenState extends ConsumerState<TrackerScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
-              setState(() => _daysSober = 1);
+              ref.read(streakProvider.notifier).restart();
               Navigator.pop(context);
               HapticFeedback.mediumImpact();
-              // ── Update stats ─────────────────────────────
               await ref.read(statsProvider.notifier).streakRestarted();
             },
             style: FilledButton.styleFrom(backgroundColor: AarohaColors.tertiary),
@@ -67,13 +61,17 @@ class _TrackerScreenState extends ConsumerState<TrackerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final streak = ref.watch(streakProvider);
+    final goals  = ref.watch(goalsProvider);
+    final doneCount = goals.where((g) => g.isCompleted).length;
+
     return Scaffold(
       backgroundColor: AarohaColors.background,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
         children: [
           // ── Streak Hero ─────────────────────────────────────
-          _StreakHeroCard(daysSober: _daysSober)
+          _StreakHeroCard(streak: streak)
               .animate()
               .fadeIn(duration: 400.ms)
               .slideY(begin: 0.04, end: 0, duration: 400.ms),
@@ -83,28 +81,28 @@ class _TrackerScreenState extends ConsumerState<TrackerScreen> {
           // ── Daily Goals ─────────────────────────────────────
           SectionHeader(
             title: "Today's Goals",
-            actionLabel: '${_goals.where((g) => g.done).length}/${_goals.length} done',
+            actionLabel: '$doneCount/${goals.length} done',
           ).animate().fadeIn(delay: 80.ms),
           const SizedBox(height: 12),
 
-          ..._goals.asMap().entries.map((entry) {
+          ...goals.asMap().entries.map((entry) {
             final i = entry.key;
             final g = entry.value;
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: _GoalTile(
-                goal: g,
+                goal: _Goal(g.title, g.subtitle, g.isCompleted),
                 onToggle: () async {
                   HapticFeedback.selectionClick();
-                  final wasCompleted = g.done;
-                  setState(() => _goals[i] = _Goal(g.title, g.subtitle, !g.done));
+                  final wasCompleted = g.isCompleted;
+                  ref.read(goalsProvider.notifier).toggle(g.id);
 
                   if (!wasCompleted) {
-                    // ── Stat: goal completed ────────────────
                     await ref.read(statsProvider.notifier).goalCompleted();
                     await NotificationService.instance.showGoalCompletedNotification(g.title);
                   }
-                  final incomplete = _goals.where((goal) => !goal.done).map((goal) => goal.title).toList();
+                  final updated = ref.read(goalsProvider);
+                  final incomplete = updated.where((goal) => !goal.isCompleted).map((goal) => goal.title).toList();
                   await NotificationService.instance.scheduleIncompleteGoalReminder(incomplete);
                 },
               )
@@ -122,7 +120,7 @@ class _TrackerScreenState extends ConsumerState<TrackerScreen> {
 
           const SectionHeader(title: 'Your Progress').animate(delay: 350.ms).fadeIn(),
           const SizedBox(height: 12),
-          _BentoStats(daysSober: _daysSober).animate(delay: 400.ms).fadeIn(),
+          _BentoStats(streak: streak).animate(delay: 400.ms).fadeIn(),
 
           const SizedBox(height: 28),
 
@@ -150,24 +148,8 @@ class _TrackerScreenState extends ConsumerState<TrackerScreen> {
 
 // ── Streak Hero Card ──────────────────────────────────────────
 class _StreakHeroCard extends StatelessWidget {
-  final int daysSober;
-  const _StreakHeroCard({required this.daysSober});
-
-  String get _nextMilestone {
-    const milestones = [1, 3, 7, 14, 21, 30, 60, 90, 365];
-    for (final m in milestones) {
-      if (daysSober < m) {
-        return '${m - daysSober} Day${m - daysSober == 1 ? '' : 's'} to ${_badge(m)}';
-      }
-    }
-    return 'You are a beacon 🌟';
-  }
-
-  String _badge(int d) => switch (d) {
-    1  => 'First Step',  3 => 'Bronze Seed', 7 => 'Silver Root',
-    14 => 'Gold Branch', 21 => 'Platinum Leaf', 30 => 'Sapphire Tree',
-    _  => 'Next Milestone',
-  };
+  final StreakModel streak;
+  const _StreakHeroCard({required this.streak});
 
   @override
   Widget build(BuildContext context) {
@@ -189,7 +171,7 @@ class _StreakHeroCard extends StatelessWidget {
             children: [
               Text('CURRENT STREAK', style: AarohaTextStyles.overline.copyWith(color: AarohaColors.primaryContainer)),
               const SizedBox(height: 8),
-              Text('$daysSober', style: AarohaTextStyles.displayLg.copyWith(color: AarohaColors.primaryContainer, fontSize: 88)),
+              Text('${streak.daysSober}', style: AarohaTextStyles.displayLg.copyWith(color: AarohaColors.primaryContainer, fontSize: 88)),
               Text('Days Clean', style: AarohaTextStyles.headlineSm.copyWith(color: AarohaColors.primaryContainer.withOpacity(0.8))),
               const SizedBox(height: 24),
               Container(
@@ -201,7 +183,7 @@ class _StreakHeroCard extends StatelessWidget {
                   children: [
                     Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('NEXT MILESTONE', style: AarohaTextStyles.overline.copyWith(color: AarohaColors.primaryContainer.withOpacity(0.6))),
-                      Text(_nextMilestone, style: AarohaTextStyles.labelMd.copyWith(color: AarohaColors.primaryContainer)),
+                      Text(streak.nextMilestoneLabel, style: AarohaTextStyles.labelMd.copyWith(color: AarohaColors.primaryContainer)),
                     ]),
                     Container(
                       width: 48, height: 48,
@@ -293,16 +275,16 @@ class _QuoteCard extends StatelessWidget {
 
 // ── Bento Stats ───────────────────────────────────────────────
 class _BentoStats extends StatelessWidget {
-  final int daysSober;
-  const _BentoStats({required this.daysSober});
+  final StreakModel streak;
+  const _BentoStats({required this.streak});
 
   @override
   Widget build(BuildContext context) {
     final stats = [
-      _Stat('₹${(daysSober * 200).toStringAsFixed(0)}', 'Money Saved', Icons.savings_rounded, AarohaColors.primary),
-      _Stat('${daysSober * 24}h', 'Hours Sober', Icons.timer_rounded, AarohaColors.secondary),
+      _Stat('₹${streak.moneySavedAuto.toStringAsFixed(0)}', 'Money Saved', Icons.savings_rounded, AarohaColors.primary),
+      _Stat('${streak.hoursSober}h', 'Hours Sober', Icons.timer_rounded, AarohaColors.secondary),
       const _Stat('3', 'Badges Earned', Icons.emoji_events_rounded, AarohaColors.primary),
-      _Stat('$daysSober', 'Best Streak', Icons.local_fire_department_rounded, AarohaColors.tertiary),
+      _Stat('${streak.bestStreak}', 'Best Streak', Icons.local_fire_department_rounded, AarohaColors.tertiary),
     ];
     return GridView.count(
       crossAxisCount: 2,
